@@ -10,7 +10,7 @@
 
 **Steps to Follow:**
 
-        1. Load this simple yaml file in  SSM Automation Document Section.
+        1. Load this simple yaml file in SSM Automation Document Section.
         2. Choose your desired instances and options for the activity.
         3. Run the automation.   
       
