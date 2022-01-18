@@ -1,0 +1,105 @@
+description: Cloud Support Windows-Patching-Automation-Document
+schemaVersion: '0.3'
+assumeRole: '{{ AutomationAssumeRole }}'
+parameters:
+  AutomationAssumeRole:
+    default: 'arn:aws:iam::{{global:ACCOUNT_ID}}:role/ssm-patching-automation-role'
+    description: (Optional) The ARN of the role that allows Automation to perform the actions on your behalf.
+    type: String
+  InstanceId:
+    description: (Required) List of EC2 Instance(s) that needs to be patched
+    type: StringList
+  Backup:
+    allowedValues:
+      - 'true'
+      - 'false'
+    default: 'true'
+    description: (Required) A Backup will be taken before patching if set to true with 7 days retention
+    type: String
+  Reboot:
+    allowedValues:
+      - RebootIfNeeded
+      - NoReboot
+    default: NoReboot
+    description: (Required) RebootIfNeeded will reboot the server before taking backup and reboot after patching
+    type: String
+mainSteps:
+  - outputs:
+      - Type: String
+        Name: InsId
+        Selector: '$.Reservations[0].Instances[0].InstanceId'
+    inputs:
+      Service: ec2
+      Api: DescribeInstances
+      InstanceIds: '{{ InstanceId }}'
+    name: DescribeInstances
+    action: 'aws:executeAwsApi'
+    onFailure: Continue
+    nextStep: startInstances
+  - maxAttempts: '3'
+    inputs:
+      DesiredState: running
+      InstanceIds: '{{ InstanceId }}'
+    name: startInstances
+    action: 'aws:changeInstanceState'
+    onFailure: Continue
+    nextStep: StartWindowsUpdateService
+  - inputs:
+      RuntimeParameters:
+        InstanceId:
+          - '{{InstanceId}}'
+        WindowsServiceName:
+          - wuauserv
+        StartupType:
+          - Auto
+        ServiceAction:
+          - Start
+      DocumentName: AWSSupport-ManageWindowsService
+    name: StartWindowsUpdateService
+    action: 'aws:executeAutomation'
+    onFailure: Continue
+    nextStep: UpdateSSMAgent
+  - inputs:
+      TimeoutSeconds: '900'
+      Parameters:
+        allowDowngrade: 'false'
+      InstanceIds:
+        - '{{InstanceId}}'
+      DocumentName: AWS-UpdateSSMAgent
+    name: UpdateSSMAgent
+    action: 'aws:runCommand'
+    onFailure: Continue
+    nextStep: PatchInstance
+  - maxAttempts: 3
+    inputs:
+      TimeoutSeconds: '7200'
+      Parameters:
+        RebootOption: NoReboot
+        Operation: Install
+      InstanceIds:
+        - '{{InstanceId}}'
+      DocumentName: AWS-RunPatchBaseline
+    name: PatchInstance
+    action: 'aws:runCommand'
+  - name: RebootTheInstance
+    action: 'aws:runCommand'
+    inputs:
+      Parameters:
+        commands: '-[''shutdown -r'']'
+      DocumentName: AWS-RunPowerShellScript
+      InstanceIds: '{{ InstanceId }}'
+    description: Reboot the Instance
+  - inputs:
+      RuntimeParameters:
+        InstanceId:
+          - '{{InstanceId}}'
+        WindowsServiceName:
+          - wuauserv
+        StartupType:
+          - Disabled
+        ServiceAction:
+          - Stop
+      DocumentName: AWSSupport-ManageWindowsService
+    name: StopWindowsUpdateService
+    action: 'aws:executeAutomation'
+    onFailure: Continue
